@@ -2,10 +2,19 @@ name: x86-64 Pull and Save Docker Image
 on:
   workflow_dispatch:
     inputs:
-      docker_images:
-        description: '请填写docker镜像名称 多个用英文逗号分开'
+      docker_image:
+        description: '请填写docker镜像名称'
         required: true
-        default: 'alpine:latest,busybox:stable-glibc'  # 设置默认的 Docker 镜像列表
+        default: 'alpine:latest'
+      registry_username:
+        description: '阿里云容器镜像服务登录用户名'
+        required: true
+      registry_password:
+        description: '阿里云容器镜像服务登录密码'
+        required: true
+      image_version:
+        description: '目标镜像版本号'
+        required: true
 
 jobs:
   pull_and_package:
@@ -20,18 +29,27 @@ jobs:
           docker system prune -a -f
           docker volume prune -f
 
-    - name: Pull Docker Images and Package
+    - name: Pull Docker Image
       run: |
-        images="${{ github.event.inputs.docker_images }}"
-          IFS=',' read -r -a image_array <<< "$images"
-          for image in "${image_array[@]}"; do
-            docker pull "${image}" --platform "linux/amd64"
-            image_name="${image//\//_}"
-            image_name="${image_name//:/_}"
-            docker save "${image}" -o "${image_name}-amd64.tar"
-            gzip -c "${image_name}-amd64.tar" > "${image_name}-amd64.tar.gz"
-            rm "${image_name}-amd64.tar"
-          done
+        docker pull "${{ github.event.inputs.docker_image }}" --platform "linux/amd64"
+        image_name="${{ github.event.inputs.docker_image }}"
+        image_name="${image_name//\//_}"
+        image_name="${image_name//:/_}"
+        docker save "${{ github.event.inputs.docker_image }}" -o "${image_name}-amd64.tar"
+        gzip -c "${image_name}-amd64.tar" > "${image_name}-amd64.tar.gz"
+        rm "${image_name}-amd64.tar"
+
+    - name: Login to Aliyun Container Registry
+      run: |
+        docker login --username="${{ github.event.inputs.registry_username }}" \
+          wlcb-2050-registry.cn-wulanchabu.cr.aliyuncs.com \
+          --password="${{ github.event.inputs.registry_password }}"
+
+    - name: Tag and Push Image
+      run: |
+        IMAGE_ID=$(docker images --format "{{.ID}}" "${{ github.event.inputs.docker_image }}")
+        docker tag $IMAGE_ID wlcb-2050-registry.cn-wulanchabu.cr.aliyuncs.com/2050/2050:${{ github.event.inputs.image_version }}
+        docker push wlcb-2050-registry.cn-wulanchabu.cr.aliyuncs.com/2050/2050:${{ github.event.inputs.image_version }}
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
